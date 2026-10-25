@@ -515,6 +515,8 @@ class OverlayApp:
         if not q or q.startswith("Type question"):
             self._st("Input box is empty! Type question or use Voice / Snip.")
             return
+        # Clear input box immediately so user can type next question right away
+        self._inp.delete("1.0", "end")
         self._busy = True
         self._st("AI generating answer...")
         self._dot.config(fg=YELLOW)

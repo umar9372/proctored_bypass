@@ -82,6 +82,8 @@ class TransparentOverlay:
         self._drag_oy          = 0
         self._hwnd             = None
         self._capture_excluded = False
+        self._voice_on         = False
+        self._busy             = False
 
         self.root = tk.Tk()
         self._setup_window()
@@ -269,6 +271,8 @@ class TransparentOverlay:
                   activebackground="#1e1e3a", activeforeground=C["text"])
         tk.Button(row, text="📷  Snip + OCR", command=self._snip, **ab).pack(side="left", padx=(0, 4))
         tk.Button(row, text="🤖  Ask AI",     command=self._ask,  **ab).pack(side="left", padx=4)
+        self._voice_btn = tk.Button(row, text="🎤 Voice: OFF", command=self._toggle_voice, **ab)
+        self._voice_btn.pack(side="left", padx=4)
         tk.Button(row, text="🗑  Clear",      command=self._clear, **ab).pack(side="left", padx=4)
         tk.Button(row, text="⚙  Config",     command=self._config_dialog,
                   **ab).pack(side="right")
@@ -378,12 +382,88 @@ class TransparentOverlay:
 
         threading.Thread(target=do, daemon=True).start()
 
+    def _toggle_voice(self):
+        self._voice_on = not self._voice_on
+        if self._voice_on:
+            self._voice_btn.config(text="🎤 Voice: ON (Listening)", fg=self.C["accent2"], bg="#0d2b1a")
+            self._set_status("🎤 Voice ON - Listening to interviewer. Speak question...")
+            threading.Thread(target=self._voice_loop, daemon=True).start()
+        else:
+            self._voice_on = False
+            self._voice_btn.config(text="🎤 Voice: OFF", fg=self.C["text"], bg=self.C["panel"])
+            self._set_status("🎤 Voice listener stopped.")
+
+    def _stop_voice(self):
+        self._voice_on = False
+        self._voice_btn.config(text="🎤 Voice: OFF", fg=self.C["text"], bg=self.C["panel"])
+
+    def _voice_loop(self):
+        try:
+            import speech_recognition as sr
+        except Exception as e:
+            self._ui_call(self._set_status, f"Voice error: {e}")
+            self._ui_call(self._stop_voice)
+            return
+
+        r = sr.Recognizer()
+        r.dynamic_energy_threshold = True
+        r.pause_threshold = 1.0
+
+        try:
+            mic = sr.Microphone()
+        except Exception as e:
+            self._ui_call(self._set_status, f"Mic error: {e}")
+            self._ui_call(self._stop_voice)
+            return
+
+        try:
+            with mic as source:
+                r.adjust_for_ambient_noise(source, duration=0.6)
+                while self._voice_on:
+                    if self._busy:
+                        import time
+                        time.sleep(0.4)
+                        continue
+                    try:
+                        self._ui_call(self._set_status, "🎤 Voice: Listening for speech...")
+                        audio = r.listen(source, timeout=3, phrase_time_limit=25)
+                        if not self._voice_on:
+                            break
+                        self._ui_call(self._set_status, "🎤 Voice: Transcribing speech...")
+                        text = r.recognize_google(audio)
+                        text = text.strip() if text else ""
+                        if text and len(text) >= 3 and self._voice_on and not self._busy:
+                            self._ui_call(self._on_voice_heard, text)
+                    except sr.WaitTimeoutError:
+                        continue
+                    except sr.UnknownValueError:
+                        continue
+                    except Exception as e:
+                        if self._voice_on:
+                            self._ui_call(self._set_status, f"Voice: {str(e)[:35]}")
+                        import time
+                        time.sleep(0.5)
+        except Exception as e:
+            self._ui_call(self._set_status, f"Mic error: {e}")
+            self._ui_call(self._stop_voice)
+
+    def _on_voice_heard(self, text):
+        if not text or self._busy:
+            return
+        self._set_input(text)
+        self._set_status(f"🎤 Heard: {text[:45]}...")
+        self._ask()
+
     def _ask(self):
         """Send current input to AI engine and stream the response."""
         q = self._inp.get("1.0", "end").strip()
         if not q:
             self._set_status("⚠ Enter a question first")
             return
+
+        # CLEAR IMMEDIATELY ON CLICKING ASK AI:
+        self._inp.delete("1.0", "end")
+        self._busy = True
 
         self._set_status("🤖 AI thinking …")
         self._dot.config(fg=self.C["warning"])
@@ -394,9 +474,11 @@ class TransparentOverlay:
             self._ui_call(self._append, tok, "ai")
 
         def on_done(_full):
+            self._busy = False
             self._ui_call(self._ai_done)
 
         def on_error(msg):
+            self._busy = False
             def handle_err():
                 self._append(f"\n⚠ {msg}\n", "error")
                 self._dot.config(fg=self.C["danger"])
@@ -406,9 +488,12 @@ class TransparentOverlay:
         self.ai_engine.ask(q, on_chunk, on_done, on_error)
 
     def _ai_done(self):
+        self._busy = False
         self._append("\n" + "─" * 48 + "\n", "sep")
         self._set_status("✔ Response complete")
         self._dot.config(fg=self.C["accent2"])
+        # Clear input box on response completion
+        self._inp.delete("1.0", "end")
 
     def _clear(self):
         self._resp.config(state="normal")
@@ -546,6 +631,7 @@ class TransparentOverlay:
         hm = self.hotkey_manager
         hm.register("ctrl+alt+s", self._snip)
         hm.register("ctrl+alt+a", self._ask)
+        hm.register("ctrl+alt+v", self._toggle_voice)
         hm.register("ctrl+alt+h", self._toggle_visibility)
         hm.register("ctrl+alt+t", self._toggle_click_through)
         hm.register("ctrl+alt+q", self._on_close)

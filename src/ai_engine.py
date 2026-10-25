@@ -85,38 +85,32 @@ class AIEngine:
 
     # ── Google Gemini ─────────────────────────────────────────────────
     def _gemini(self, question, system, on_chunk, on_done):
-        from google import genai
-        from google.genai import types
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=self.config.get("gemini_api_key"))
+            primary = self.config.get("gemini_model", "gemini-2.5-flash")
+            candidates = [primary, "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro"]
+            candidates = list(dict.fromkeys(candidates))
 
-        client = genai.Client(api_key=self.config.get("gemini_api_key"))
-        primary = self.config.get("gemini_model", "gemini-2.5-flash")
-        candidates = [primary, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-        candidates = list(dict.fromkeys(candidates))
-
-        last_error = None
-        for model_name in candidates:
-            try:
-                cfg = types.GenerateContentConfig(system_instruction=system)
-                full = ""
-                for chunk in client.models.generate_content_stream(
-                    model=model_name,
-                    contents=question,
-                    config=cfg,
-                ):
-                    text = chunk.text or ""
-                    if text:
-                        full += text
-                        on_chunk(text)
-                on_done(full)
-                return
-            except Exception as e:
-                last_error = e
-                err_str = str(e).lower()
-                if any(x in err_str for x in ["429", "quota", "not found", "404", "deadline", "504"]):
+            last_error = None
+            for model_name in candidates:
+                try:
+                    m = genai.GenerativeModel(model_name, system_instruction=system)
+                    full = ""
+                    for chunk in m.generate_content(question, stream=True):
+                        text = getattr(chunk, "text", "") or ""
+                        if text:
+                            full += text
+                            on_chunk(text)
+                    on_done(full)
+                    return
+                except Exception as e:
+                    last_error = e
                     continue
-                raise e
-        if last_error:
-            raise last_error
+            if last_error:
+                raise last_error
+        except Exception as e:
+            raise e
 
     # ── Ollama (local) ────────────────────────────────────────────────
     def _ollama(self, question, system, on_chunk, on_done):
