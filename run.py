@@ -95,29 +95,27 @@ def ask_ai(question, cfg, on_chunk, on_done, on_error):
                     on_error("Gemini API key is empty. Click Config to set it.")
                     return
                 genai.configure(api_key=k)
-                model_name = cfg.get("gemini_model", "gemini-2.5-flash")
-                try:
-                    m = genai.GenerativeModel(model_name, system_instruction=sy)
-                    full = ""
-                    for chunk in m.generate_content(question, stream=True):
-                        t = getattr(chunk, "text", "") or ""
-                        if t:
-                            full += t
-                            on_chunk(t)
-                    on_done(full)
-                except Exception as ex:
-                    # fallback to gemini-flash-latest or gemini-2.5-pro if specific model name fails
-                    if "not found" in str(ex).lower():
-                        m = genai.GenerativeModel("gemini-flash-latest", system_instruction=sy)
+                model_name = cfg.get("gemini_model", "gemini-flash-lite-latest")
+                candidates = [model_name, "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-flash-latest"]
+                candidates = list(dict.fromkeys(candidates))
+                last_ex = None
+                for candidate in candidates:
+                    try:
+                        m = genai.GenerativeModel(candidate, system_instruction=sy)
                         full = ""
                         for chunk in m.generate_content(question, stream=True):
                             t = getattr(chunk, "text", "") or ""
                             if t:
                                 full += t
                                 on_chunk(t)
-                        on_done(full)
-                    else:
-                        raise ex
+                        if full:
+                            on_done(full)
+                            return
+                    except Exception as ex:
+                        last_ex = ex
+                        continue
+                if last_ex:
+                    raise last_ex
             elif p == "openai":
                 import openai
                 c = openai.OpenAI(api_key=cfg["openai_key"])

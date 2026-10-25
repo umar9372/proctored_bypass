@@ -85,32 +85,34 @@ class AIEngine:
 
     # ── Google Gemini ─────────────────────────────────────────────────
     def _gemini(self, question, system, on_chunk, on_done):
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=self.config.get("gemini_api_key"))
-            primary = self.config.get("gemini_model", "gemini-2.5-flash")
-            candidates = [primary, "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro"]
-            candidates = list(dict.fromkeys(candidates))
+        import google.generativeai as genai
+        api_key = self.config.get("gemini_api_key", "").strip()
+        if not api_key:
+            raise ValueError("Gemini API key is empty. Set it in config.json or via the Config dialog.")
+        genai.configure(api_key=api_key)
 
-            last_error = None
-            for model_name in candidates:
-                try:
-                    m = genai.GenerativeModel(model_name, system_instruction=system)
-                    full = ""
-                    for chunk in m.generate_content(question, stream=True):
-                        text = getattr(chunk, "text", "") or ""
-                        if text:
-                            full += text
-                            on_chunk(text)
+        primary = self.config.get("gemini_model", "gemini-flash-lite-latest")
+        candidates = [primary, "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-flash-latest"]
+        candidates = list(dict.fromkeys(candidates))
+
+        last_error = None
+        for model_name in candidates:
+            try:
+                m = genai.GenerativeModel(model_name, system_instruction=system)
+                full = ""
+                for chunk in m.generate_content(question, stream=True):
+                    text = getattr(chunk, "text", "") or ""
+                    if text:
+                        full += text
+                        on_chunk(text)
+                if full:
                     on_done(full)
                     return
-                except Exception as e:
-                    last_error = e
-                    continue
-            if last_error:
-                raise last_error
-        except Exception as e:
-            raise e
+            except Exception as e:
+                last_error = e
+                continue
+        if last_error:
+            raise last_error
 
     # ── Ollama (local) ────────────────────────────────────────────────
     def _ollama(self, question, system, on_chunk, on_done):
