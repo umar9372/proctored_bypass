@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
     "ai_provider": "gemini",
     "openai_api_key": "",
     "openai_model": "gpt-4o-mini",
@@ -13,4 +14,20 @@
     "overlay_height": 560,
     "overlay_capture_hidden": false,
     "system_prompt": "You are a precise academic assistant. Answer questions concisely and correctly. For MCQ questions, state the correct option first, then a 1-2 line explanation. For coding questions, give working code with brief comments. For math/theory, be direct and show key steps only."
+=======
+    "ai_provider":  "gemini",
+    "openai_api_key":  "",
+    "openai_model":  "gpt-4o-mini",
+    "anthropic_api_key":  "",
+    "anthropic_model":  "claude-3-5-haiku-20241022",
+    "gemini_api_key":  "",
+    "gemini_model":  "gemini-2.5-flash",
+    "ollama_host":  "http://localhost:11434",
+    "ollama_model":  "llama3.2",
+    "overlay_opacity":  1.0,
+    "overlay_width":  600,
+    "overlay_height":  550,
+    "overlay_capture_hidden":  false,
+    "system_prompt":  "You are a precise academic assistant. Answer questions concisely and correctly. For MCQ questions, state the correct option first, then a 1-2 line explanation. For coding questions, give working code with brief comments. For math/theory, be direct and show key steps only."
+>>>>>>> d0fa783192d0554fa043318216272fbe544a4c97
 }
