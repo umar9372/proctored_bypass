@@ -4,7 +4,7 @@
     "openai_model":  "gpt-4o-mini",
     "anthropic_api_key":  "",
     "anthropic_model":  "claude-3-5-haiku-20241022",
-    "gemini_api_key":  "AIzaSyC3gKpIkfeyAOiprQRtxO0t_omo-KCJiT0",
+    "gemini_api_key":  "",
     "gemini_model":  "gemini-2.5-flash",
     "ollama_host":  "http://localhost:11434",
     "ollama_model":  "llama3.2",
