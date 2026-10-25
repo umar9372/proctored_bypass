@@ -4,6 +4,7 @@ MTech Thesis: Proctoring Vulnerability Research — Phase 1
 
 Opens a translucent fullscreen canvas. The user clicks and drags to
 select a rectangular region. Returns (x, y, width, height) or None.
+Includes multiple ways to cancel: ESC key, Right-Click, or [Cancel] button.
 """
 
 import tkinter as tk
@@ -43,27 +44,50 @@ class RegionSelector:
         )
         self.canvas.pack(fill="both", expand=True)
 
-        # Instructions
-        self.canvas.create_text(
-            sw // 2, 28,
-            text="✦  Drag to select the exam question region  ·  ESC to cancel",
-            fill="white",
-            font=("Segoe UI", 13, "bold"),
-            anchor="center",
+        # Top Banner with Instructions and prominent Cancel Button
+        banner = tk.Frame(self.win, bg="#111124", padx=16, pady=8, highlightthickness=1, highlightbackground="#3a3a60")
+        banner.place(relx=0.5, y=40, anchor="center")
+
+        tk.Label(
+            banner,
+            text="✦ Drag mouse to select exam question  ·  ESC / Right-click to cancel",
+            fg="#dde0f0", bg="#111124",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(side="left", padx=(0, 16))
+
+        cancel_btn = tk.Button(
+            banner,
+            text="✕ Cancel Snip (ESC)",
+            command=lambda: self._on_escape(None),
+            bg="#ff4757", fg="white",
+            relief="flat", bd=0,
+            font=("Segoe UI", 9, "bold"),
+            padx=14, pady=4,
+            cursor="hand2",
+            activebackground="#ff6b81", activeforeground="white"
         )
+        cancel_btn.pack(side="left")
 
         # Bind events
         self.canvas.bind("<ButtonPress-1>",   self._on_press)
         self.canvas.bind("<B1-Motion>",       self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
-        self.win.bind("<Escape>",             self._on_escape)
+
+        # Cancel bindings: ESC key everywhere and Right-Click
+        self.win.bind_all("<Escape>", self._on_escape)
+        self.canvas.bind_all("<Escape>", self._on_escape)
+        self.canvas.bind("<ButtonPress-3>", self._on_escape)
+        self.win.bind("<ButtonPress-3>", self._on_escape)
+
+        self.win.focus_force()
 
         # Wait until closed
-        self.win.grab_set()
+        try:
+            self.win.grab_set()
+        except:
+            pass
         self.win.wait_window()
         return self._result
-
-    # ──────────────────────────────────────────────────────────────────
 
     def _on_press(self, event):
         self._start_x  = event.x_root
@@ -82,6 +106,7 @@ class RegionSelector:
         y2 = max(self._start_y, event.y_root)
 
         # Glowing selection rectangle
+        self.canvas.delete("_shadow")
         self.canvas.create_rectangle(
             x1, y1, x2, y2,
             outline="#00e5a0", width=1,
@@ -115,8 +140,18 @@ class RegionSelector:
         if w > 10 and h > 10:
             self._result = (x, y, w, h)
 
-        self.win.destroy()
+        self._cleanup()
 
-    def _on_escape(self, event):
+    def _on_escape(self, event=None):
         self._result = None
-        self.win.destroy()
+        self._cleanup()
+
+    def _cleanup(self):
+        try:
+            self.win.grab_release()
+        except:
+            pass
+        try:
+            self.win.destroy()
+        except:
+            pass

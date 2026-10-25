@@ -219,16 +219,36 @@ class RegionSelector:
         sh = self.win.winfo_screenheight()
         self.cv = tk.Canvas(self.win, bg="black", highlightthickness=0, cursor="crosshair")
         self.cv.pack(fill="both", expand=True)
-        self.cv.create_text(
-            sw // 2, 30,
-            text="Drag to select question region  |  ESC to cancel",
-            fill="white", font=("Segoe UI", 13, "bold")
-        )
+
+        # Top banner with instruction and cancel button
+        banner = tk.Frame(self.win, bg="#111124", padx=16, pady=8, highlightthickness=1, highlightbackground="#3a3a60")
+        banner.place(relx=0.5, y=40, anchor="center")
+        tk.Label(
+            banner, text="✦ Drag mouse to select exam question  ·  ESC / Right-click to cancel",
+            fg="#dde0f0", bg="#111124", font=("Segoe UI", 11, "bold")
+        ).pack(side="left", padx=(0, 16))
+        tk.Button(
+            banner, text="✕ Cancel Snip (ESC)", command=self._cancel,
+            bg="#ff4757", fg="white", relief="flat", bd=0,
+            font=("Segoe UI", 9, "bold"), padx=14, pady=4, cursor="hand2",
+            activebackground="#ff6b81", activeforeground="white"
+        ).pack(side="left")
+
         self.cv.bind("<ButtonPress-1>", self._press)
         self.cv.bind("<B1-Motion>", self._drag)
         self.cv.bind("<ButtonRelease-1>", self._release)
-        self.win.bind("<Escape>", lambda _: self._cancel())
-        self.win.grab_set()
+
+        # Bind Escape and Right-Click to cancel
+        self.win.bind_all("<Escape>", lambda _: self._cancel())
+        self.cv.bind_all("<Escape>", lambda _: self._cancel())
+        self.cv.bind("<ButtonPress-3>", lambda _: self._cancel())
+        self.win.bind("<ButtonPress-3>", lambda _: self._cancel())
+        self.win.focus_force()
+
+        try:
+            self.win.grab_set()
+        except:
+            pass
         self.win.wait_window()
         return self._result
 
@@ -258,11 +278,17 @@ class RegionSelector:
         w, h = abs(e.x_root - self._sx), abs(e.y_root - self._sy)
         if w > 10 and h > 10:
             self._result = (x, y, w, h)
-        self.win.destroy()
+        self._cancel()
 
     def _cancel(self):
-        self._result = None
-        self.win.destroy()
+        try:
+            self.win.grab_release()
+        except:
+            pass
+        try:
+            self.win.destroy()
+        except:
+            pass
 
 
 class OverlayApp:
@@ -274,6 +300,7 @@ class OverlayApp:
         self._hwnd = None
         self._busy = False
         self._voice_on = False
+        self._opacity = float(self.cfg.get("overlay_opacity", 0.85))
 
         self.root = tk.Tk()
         self._init()
@@ -284,7 +311,7 @@ class OverlayApp:
     def _init(self):
         self.root.title(WINDOW_TITLE)
         self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 1.0)
+        self.root.attributes("-alpha", self._opacity)
         self.root.overrideredirect(True)
         self.root.configure(bg=BG)
         sw = self.root.winfo_screenwidth()
@@ -343,6 +370,22 @@ class OverlayApp:
             b.pack(side="right", padx=2)
             if txt == "[T]":
                 self._ctb = b
+
+        # Opacity controller in header
+        opac_frame = tk.Frame(hdr, bg=HEADER_BG)
+        opac_frame.pack(side="right", padx=(2, 10))
+        tk.Label(opac_frame, text="Opacity:", fg=DIM, bg=HEADER_BG, font=("Segoe UI", 8)).pack(side="left", padx=(0, 2))
+        tk.Button(opac_frame, text="–", fg=TEXT, bg=PANEL, relief="flat", bd=0,
+                  font=("Segoe UI", 8, "bold"), cursor="hand2", padx=5, pady=0,
+                  command=lambda: self._adjust_opacity(-0.10)).pack(side="left")
+        self._opac_lbl = tk.Label(opac_frame, text=f"{int(self._opacity * 100)}%",
+                                  fg=GREEN, bg=PANEL, font=("Segoe UI", 8, "bold"),
+                                  padx=4, pady=1, cursor="hand2")
+        self._opac_lbl.pack(side="left", padx=1)
+        self._opac_lbl.bind("<Button-1>", lambda e: self._cycle_opacity())
+        tk.Button(opac_frame, text="+", fg=TEXT, bg=PANEL, relief="flat", bd=0,
+                  font=("Segoe UI", 8, "bold"), cursor="hand2", padx=5, pady=0,
+                  command=lambda: self._adjust_opacity(0.10)).pack(side="left")
 
         for w in [hdr] + list(hdr.winfo_children()):
             w.bind("<ButtonPress-1>", self._ds)
@@ -409,13 +452,35 @@ class OverlayApp:
         self._inp.bind("<FocusIn>", self._if)
         self._inp.bind("<Control-Return>", lambda _: self._ask())
 
-        # Status Bar
+        # Status Bar and Corner Resize Grip
+        self._sb_frame = tk.Frame(self.root, bg="#08080f")
+        self._sb_frame.pack(fill="x", side="bottom")
+
         self._sb = tk.Label(
-            self.root,
-            text="  Ctrl+Alt+S: Snip | Ctrl+Alt+A: Ask AI | Ctrl+Alt+V: Voice Toggle | Ctrl+Alt+H: Hide | Ctrl+Alt+T: Click-thru",
+            self._sb_frame,
+            text="  Snip: Ctrl+Alt+S | Ask: Ctrl+Alt+A | Voice: Ctrl+Alt+V | Opacity: Ctrl+Alt+[/] | ESC to cancel snip",
             fg=DIM, bg="#08080f", font=("Segoe UI", 7), anchor="w", padx=8
         )
-        self._sb.pack(fill="x", side="bottom")
+        self._sb.pack(side="left", fill="x", expand=True)
+
+        self._grip = tk.Label(
+            self._sb_frame, text="◢", fg=ACCENT, bg="#08080f",
+            font=("Segoe UI", 10, "bold"), cursor="size_nw_se", padx=4
+        )
+        self._grip.pack(side="right")
+        self._grip.bind("<ButtonPress-1>", self._on_resize_start)
+        self._grip.bind("<B1-Motion>", self._on_resize_drag)
+
+        # Right and bottom edge resize handles
+        self._r_edge = tk.Frame(self.root, bg="#1a1a36", width=4, cursor="size_we")
+        self._r_edge.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
+        self._r_edge.bind("<ButtonPress-1>", self._on_resize_x_start)
+        self._r_edge.bind("<B1-Motion>", self._on_resize_x_drag)
+
+        self._b_edge = tk.Frame(self.root, bg="#1a1a36", height=4, cursor="size_ns")
+        self._b_edge.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw")
+        self._b_edge.bind("<ButtonPress-1>", self._on_resize_y_start)
+        self._b_edge.bind("<B1-Motion>", self._on_resize_y_drag)
 
     # Voice Toggle & Listener
     def _toggle_voice(self):
@@ -677,6 +742,65 @@ class OverlayApp:
         self._resp.see("end")
         self._resp.config(state="disabled")
 
+    def _set_opacity(self, val):
+        self._opacity = round(max(0.15, min(1.0, val)), 2)
+        self.root.attributes("-alpha", self._opacity)
+        if hasattr(self, "_opac_lbl"):
+            self._opac_lbl.config(text=f"{int(self._opacity * 100)}%")
+        self._st(f"Opacity set to {int(self._opacity * 100)}%")
+
+    def _adjust_opacity(self, delta):
+        self._set_opacity(self._opacity + delta)
+
+    def _cycle_opacity(self):
+        presets = [1.0, 0.80, 0.60, 0.40, 0.20]
+        cur = round(self._opacity, 2)
+        next_val = presets[0]
+        for p in presets:
+            if p < cur - 0.05:
+                next_val = p
+                break
+        self._set_opacity(next_val)
+
+    def _on_resize_start(self, event):
+        self._rs_x = event.x_root
+        self._rs_y = event.y_root
+        self._rs_w = self.root.winfo_width()
+        self._rs_h = self.root.winfo_height()
+
+    def _on_resize_drag(self, event):
+        dw = event.x_root - self._rs_x
+        dh = event.y_root - self._rs_y
+        nw = max(340, self._rs_w + dw)
+        nh = max(220, self._rs_h + dh)
+        cur_x = self.root.winfo_x()
+        cur_y = self.root.winfo_y()
+        self.root.geometry(f"{nw}x{nh}+{cur_x}+{cur_y}")
+
+    def _on_resize_x_start(self, event):
+        self._rs_x = event.x_root
+        self._rs_w = self.root.winfo_width()
+
+    def _on_resize_x_drag(self, event):
+        dw = event.x_root - self._rs_x
+        nw = max(340, self._rs_w + dw)
+        cur_h = self.root.winfo_height()
+        cur_x = self.root.winfo_x()
+        cur_y = self.root.winfo_y()
+        self.root.geometry(f"{nw}x{cur_h}+{cur_x}+{cur_y}")
+
+    def _on_resize_y_start(self, event):
+        self._rs_y = event.y_root
+        self._rs_h = self.root.winfo_height()
+
+    def _on_resize_y_drag(self, event):
+        dh = event.y_root - self._rs_y
+        nh = max(220, self._rs_h + dh)
+        cur_w = self.root.winfo_width()
+        cur_x = self.root.winfo_x()
+        cur_y = self.root.winfo_y()
+        self.root.geometry(f"{cur_w}x{nh}+{cur_x}+{cur_y}")
+
     def _hkeys(self):
         def run():
             try:
@@ -684,6 +808,9 @@ class OverlayApp:
                 keyboard.add_hotkey("ctrl+alt+s", self._snip)
                 keyboard.add_hotkey("ctrl+alt+a", self._ask)
                 keyboard.add_hotkey("ctrl+alt+v", self._toggle_voice)
+                keyboard.add_hotkey("ctrl+alt+[", lambda: self._adjust_opacity(-0.10))
+                keyboard.add_hotkey("ctrl+alt+]", lambda: self._adjust_opacity(0.10))
+                keyboard.add_hotkey("ctrl+alt+o", self._cycle_opacity)
                 keyboard.add_hotkey("ctrl+alt+h", self._tv)
                 keyboard.add_hotkey("ctrl+alt+t", self._tct)
                 keyboard.add_hotkey("ctrl+alt+q", self._quit)

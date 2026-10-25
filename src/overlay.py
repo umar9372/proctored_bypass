@@ -84,6 +84,7 @@ class TransparentOverlay:
         self._capture_excluded = False
         self._voice_on         = False
         self._busy             = False
+        self._opacity          = float(self.config.get("overlay_opacity", 0.85))
 
         self.root = tk.Tk()
         self._setup_window()
@@ -100,7 +101,7 @@ class TransparentOverlay:
         C = self.C
         self.root.title(_WINDOW_TITLE)
         self.root.attributes("-topmost",  True)
-        self.root.attributes("-alpha",    self.config.get("overlay_opacity", 0.90))
+        self.root.attributes("-alpha",    self._opacity)
         self.root.overrideredirect(True)    # No title bar / border
         self.root.configure(bg=C["bg"])
 
@@ -234,7 +235,7 @@ class TransparentOverlay:
 
         # Right-side controls
         btn = dict(bg=C["header"], relief="flat", bd=0,
-                   font=("Segoe UI", 12), cursor="hand2", padx=6, pady=3)
+                   font=("Segoe UI", 11), cursor="hand2", padx=6, pady=3)
         tk.Button(hdr, text="✕", fg=C["danger"],
                   command=self._on_close,          **btn).pack(side="right", padx=4)
         tk.Button(hdr, text="–", fg=C["dim"],
@@ -243,19 +244,62 @@ class TransparentOverlay:
                                  command=self._toggle_click_through, **btn)
         self._ct_btn.pack(side="right")
 
+        # Opacity controller in header
+        opac_frame = tk.Frame(hdr, bg=C["header"])
+        opac_frame.pack(side="right", padx=(2, 10))
+        tk.Label(opac_frame, text="Opacity:", fg=C["dim"], bg=C["header"],
+                 font=("Segoe UI", 8)).pack(side="left", padx=(0, 2))
+        tk.Button(opac_frame, text="–", fg=C["text"], bg=C["panel"], relief="flat", bd=0,
+                  font=("Segoe UI", 8, "bold"), cursor="hand2", padx=5, pady=0,
+                  command=lambda: self._adjust_opacity(-0.10)).pack(side="left")
+        self._opac_lbl = tk.Label(opac_frame, text=f"{int(self._opacity * 100)}%",
+                                  fg=C["accent2"], bg=C["panel"], font=("Segoe UI", 8, "bold"),
+                                  padx=4, pady=1, cursor="hand2")
+        self._opac_lbl.pack(side="left", padx=1)
+        self._opac_lbl.bind("<Button-1>", lambda e: self._cycle_opacity())
+        tk.Button(opac_frame, text="+", fg=C["text"], bg=C["panel"], relief="flat", bd=0,
+                  font=("Segoe UI", 8, "bold"), cursor="hand2", padx=5, pady=0,
+                  command=lambda: self._adjust_opacity(0.10)).pack(side="left")
+
         # Make header draggable
         for w in [hdr] + hdr.winfo_children():
             w.bind("<ButtonPress-1>",  self._drag_start)
             w.bind("<B1-Motion>",      self._drag_move)
 
-        # Status bar at bottom
+        # Status bar and Corner Resize Grip at bottom
+        self._status_bar_frame = tk.Frame(self.root, bg="#09090f")
+        self._status_bar_frame.pack(fill="x", side="bottom")
+
         self._status = tk.Label(
-            self.root,
-            text=" Ready  |  Ctrl+Alt+S: Snip  |  Ctrl+Alt+A: Ask AI  |  Ctrl+Alt+H: Hide/Show",
+            self._status_bar_frame,
+            text=" Ready  |  Snip: Ctrl+Alt+S  |  Ask: Ctrl+Alt+A  |  Voice: Ctrl+Alt+V  |  Opacity: Ctrl+Alt+[/]",
             fg=C["dim"], bg="#09090f",
             font=("Segoe UI", 7), anchor="w", padx=8,
         )
-        self._status.pack(fill="x", side="bottom")
+        self._status.pack(side="left", fill="x", expand=True)
+
+        self._grip = tk.Label(
+            self._status_bar_frame,
+            text="◢",
+            fg=C["accent"], bg="#09090f",
+            font=("Segoe UI", 10, "bold"),
+            cursor="size_nw_se",
+            padx=4,
+        )
+        self._grip.pack(side="right")
+        self._grip.bind("<ButtonPress-1>", self._on_resize_start)
+        self._grip.bind("<B1-Motion>", self._on_resize_drag)
+
+        # Resize border handles (right and bottom edges)
+        self._r_edge = tk.Frame(self.root, bg="#1a1a36", width=4, cursor="size_we")
+        self._r_edge.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
+        self._r_edge.bind("<ButtonPress-1>", self._on_resize_x_start)
+        self._r_edge.bind("<B1-Motion>", self._on_resize_x_drag)
+
+        self._b_edge = tk.Frame(self.root, bg="#1a1a36", height=4, cursor="size_ns")
+        self._b_edge.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw")
+        self._b_edge.bind("<ButtonPress-1>", self._on_resize_y_start)
+        self._b_edge.bind("<B1-Motion>", self._on_resize_y_drag)
 
         # ── Body ──────────────────────────────────────────────────────
         self._body = tk.Frame(self.root, bg=C["bg"])
@@ -632,10 +676,76 @@ class TransparentOverlay:
         hm.register("ctrl+alt+s", self._snip)
         hm.register("ctrl+alt+a", self._ask)
         hm.register("ctrl+alt+v", self._toggle_voice)
+        hm.register("ctrl+alt+[", lambda: self._adjust_opacity(-0.10))
+        hm.register("ctrl+alt+]", lambda: self._adjust_opacity(0.10))
+        hm.register("ctrl+alt+o", self._cycle_opacity)
         hm.register("ctrl+alt+h", self._toggle_visibility)
         hm.register("ctrl+alt+t", self._toggle_click_through)
         hm.register("ctrl+alt+q", self._on_close)
         hm.start()
+
+    # ══════════════════════════════════════════════════════════════════
+    # Opacity & Resizing Controls
+    # ══════════════════════════════════════════════════════════════════
+
+    def _set_opacity(self, val):
+        self._opacity = round(max(0.15, min(1.0, val)), 2)
+        self.root.attributes("-alpha", self._opacity)
+        if hasattr(self, "_opac_lbl"):
+            self._opac_lbl.config(text=f"{int(self._opacity * 100)}%")
+        self._set_status(f"Opacity set to {int(self._opacity * 100)}%")
+
+    def _adjust_opacity(self, delta):
+        self._set_opacity(self._opacity + delta)
+
+    def _cycle_opacity(self):
+        presets = [1.0, 0.80, 0.60, 0.40, 0.20]
+        cur = round(self._opacity, 2)
+        next_val = presets[0]
+        for p in presets:
+            if p < cur - 0.05:
+                next_val = p
+                break
+        self._set_opacity(next_val)
+
+    def _on_resize_start(self, event):
+        self._rs_x = event.x_root
+        self._rs_y = event.y_root
+        self._rs_w = self.root.winfo_width()
+        self._rs_h = self.root.winfo_height()
+
+    def _on_resize_drag(self, event):
+        dw = event.x_root - self._rs_x
+        dh = event.y_root - self._rs_y
+        nw = max(340, self._rs_w + dw)
+        nh = max(220, self._rs_h + dh)
+        cur_x = self.root.winfo_x()
+        cur_y = self.root.winfo_y()
+        self.root.geometry(f"{nw}x{nh}+{cur_x}+{cur_y}")
+
+    def _on_resize_x_start(self, event):
+        self._rs_x = event.x_root
+        self._rs_w = self.root.winfo_width()
+
+    def _on_resize_x_drag(self, event):
+        dw = event.x_root - self._rs_x
+        nw = max(340, self._rs_w + dw)
+        cur_h = self.root.winfo_height()
+        cur_x = self.root.winfo_x()
+        cur_y = self.root.winfo_y()
+        self.root.geometry(f"{nw}x{cur_h}+{cur_x}+{cur_y}")
+
+    def _on_resize_y_start(self, event):
+        self._rs_y = event.y_root
+        self._rs_h = self.root.winfo_height()
+
+    def _on_resize_y_drag(self, event):
+        dh = event.y_root - self._rs_y
+        nh = max(220, self._rs_h + dh)
+        cur_w = self.root.winfo_width()
+        cur_x = self.root.winfo_x()
+        cur_y = self.root.winfo_y()
+        self.root.geometry(f"{cur_w}x{nh}+{cur_x}+{cur_y}")
 
     # ══════════════════════════════════════════════════════════════════
     # Utility
